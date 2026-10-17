@@ -1,0 +1,75 @@
+import time
+import streamlit as st
+from io import BytesIO
+from deep_translator import GoogleTranslator, MyMemoryTranslator
+from gtts import gTTS
+
+# ---------- Page setup ----------
+st.set_page_config(page_title="Language Translator", page_icon="🌐")
+st.title("🌐 Language Translation Tool")
+st.write("Type your text, in your own language , and click Translate.")
+
+# ---------- Load supported languages ----------
+langs = GoogleTranslator().get_supported_languages(as_dict=True)
+names = list(langs.keys())
+
+
+# ---------- Translation helper (retries + backup service) ----------
+def translate_text(text, src, tgt):
+    src_code = "auto" if src == "auto detect" else langs[src]
+    last_error = None
+
+    # 1) Try Google Translate up to 3 times
+    for attempt in range(3):
+        try:
+            return GoogleTranslator(source=src_code, target=langs[tgt]).translate(text)
+        except Exception as e:
+            last_error = e
+            time.sleep(2)
+
+    # 2) Backup: MyMemory (needs a chosen source language, not auto detect)
+    if src != "auto detect":
+        try:
+            return MyMemoryTranslator(source=src, target=tgt).translate(text)
+        except Exception:
+            pass
+
+    raise last_error
+
+
+# ---------- User interface ----------
+text = st.text_area("Enter text to translate", height=150)
+
+col1, col2 = st.columns(2)
+src = col1.selectbox("From", ["auto detect"] + names)
+tgt = col2.selectbox("To", names, index=names.index("english"))
+
+translate_clicked = st.button("Translate")
+
+# ---------- Translation ----------
+if translate_clicked:
+    if not text.strip():
+        st.warning("Please enter some text.")
+    else:
+        try:
+            with st.spinner("Translating..."):
+                result = translate_text(text, src, tgt)
+
+            st.subheader("Translation")
+            st.success(result)
+            st.code(result, language=None)
+
+            # ---------- Optional: text-to-speech ----------
+            try:
+                audio = BytesIO()
+                gTTS(result, lang=langs[tgt]).write_to_fp(audio)
+                st.audio(audio.getvalue(), format="audio/mp3")
+            except Exception:
+                st.info("Audio is not available for this language.")
+
+        except Exception as e:
+            st.error(
+                "Translation failed. Google may be limiting requests from your "
+                "internet. Wait 1-2 minutes, or switch to mobile hotspot, then try again.\n\n"
+                f"Details: {e}"
+            )
